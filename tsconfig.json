@@ -1,0 +1,16 @@
+{
+  "compilerOptions": {
+    "outDir": "./lib",
+    "module": "node18",
+    "types": [],
+    "sourceMap": false,
+    "declaration": true,
+    "declarationMap": false,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "strict": true,
+    "isolatedModules": true,
+    "noUncheckedSideEffectImports": true
+  },
+  "include": ["src"]
+}
