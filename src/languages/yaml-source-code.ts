@@ -9,12 +9,9 @@ import {
   type Node,
   type Pair,
   type CST,
-  type YAMLMap,
-  type YAMLSeq,
   isPair,
   isNode,
-  isSeq,
-  isMap,
+  isDocument,
   type LineCounter,
   visit
 } from 'yaml';
@@ -41,68 +38,140 @@ interface YAMLSourceCodeOptions {
   lineCounter: LineCounter;
 }
 
-function processTokens(
-  node: CST.Token,
-  comments: CST.SourceToken[] = []
+function visitSourceTokens(
+  root: CST.Token,
+  callback: (token: CST.SourceToken) => void
 ): void {
-  switch (node.type) {
-    case 'comment':
-      comments.push(node);
-      break;
-    case 'document':
-    case 'doc-end':
-    case 'alias':
-    case 'scalar':
-    case 'single-quoted-scalar':
-    case 'double-quoted-scalar': {
-      if (node.end) {
-        for (const childToken of node.end) {
-          processTokens(childToken, comments);
+  const queue: CST.Token[] = [];
+  let currentNode: CST.Token | undefined = root;
+
+  while (currentNode) {
+    switch (currentNode.type) {
+      case 'document':
+      case 'doc-end':
+      case 'alias':
+      case 'scalar':
+      case 'single-quoted-scalar':
+      case 'double-quoted-scalar': {
+        if (currentNode.end) {
+          queue.push(...currentNode.end);
         }
+        break;
       }
-      break;
+      case 'block-scalar': {
+        queue.push(...currentNode.props);
+        break;
+      }
+      case 'block-seq':
+      case 'block-map': {
+        for (const item of currentNode.items) {
+          queue.push(...item.start);
+          if (item.value) {
+            queue.push(item.value);
+          }
+          if (item.key) {
+            queue.push(item.key);
+          }
+        }
+        break;
+      }
+      case 'flow-collection': {
+        queue.push(currentNode.start);
+        for (const item of currentNode.items) {
+          if (item.key) {
+            queue.push(item.key);
+          }
+          if (item.value) {
+            queue.push(item.value);
+          }
+        }
+        queue.push(...currentNode.end);
+        break;
+      }
+      case 'directive':
+      case 'error':
+        break;
+      default: {
+        callback(currentNode);
+      }
     }
-    case 'block-scalar': {
-      for (const childToken of node.props) {
-        processTokens(childToken, comments);
-      }
-      break;
-    }
-    case 'block-seq':
-    case 'block-map': {
-      for (const item of node.items) {
-        for (const childToken of item.start) {
-          processTokens(childToken, comments);
-        }
-        if (item.value) {
-          processTokens(item.value, comments);
-        }
-        if (item.key) {
-          processTokens(item.key, comments);
-        }
-      }
-      break;
-    }
-    case 'flow-collection': {
-      processTokens(node.start, comments);
-      for (const item of node.items) {
-        if (item.key) {
-          processTokens(item.key, comments);
-        }
-        if (item.value) {
-          processTokens(item.value, comments);
-        }
-      }
-      for (const childToken of node.end) {
-        processTokens(childToken, comments);
-      }
-      break;
-    }
+
+    currentNode = queue.shift();
   }
 }
 
+function getSiblingTokenFromMap(
+  token: CST.SourceToken,
+  tokenMap: WeakMap<CST.SourceToken, CST.SourceToken>,
+  includeComments: boolean
+): CST.SourceToken | undefined {
+  let current = tokenMap.get(token);
+  if (includeComments) {
+    return current;
+  }
+  while (current && current.type === 'comment') {
+    current = tokenMap.get(current);
+  }
+  return current;
+}
+
+function processTokens(ast: Document): {
+  tokenPrev: WeakMap<CST.SourceToken, CST.SourceToken>;
+  tokenNext: WeakMap<CST.SourceToken, CST.SourceToken>;
+  nodeToFirstToken: WeakMap<NodeLike, CST.SourceToken>;
+  nodeToLastToken: WeakMap<NodeLike, CST.SourceToken>;
+  comments: CST.SourceToken[];
+} {
+  const tokenPrev = new WeakMap<CST.SourceToken, CST.SourceToken>();
+  const tokenNext = new WeakMap<CST.SourceToken, CST.SourceToken>();
+  const nodeToFirstToken = new WeakMap<NodeLike, CST.SourceToken>();
+  const nodeToLastToken = new WeakMap<NodeLike, CST.SourceToken>();
+  let firstToken: CST.SourceToken | undefined;
+  let middleToken: CST.SourceToken | undefined;
+  const comments: CST.SourceToken[] = [];
+
+  visit(ast, {
+    Node: (_key, node) => {
+      if (!node.srcToken) {
+        return;
+      }
+
+      visitSourceTokens(node.srcToken, (token) => {
+        if (!nodeToFirstToken.has(node)) {
+          nodeToFirstToken.set(node, token);
+        }
+        nodeToLastToken.set(node, token);
+        if (firstToken && middleToken) {
+          tokenPrev.set(firstToken, middleToken);
+          tokenNext.set(middleToken, token);
+        }
+        if (!firstToken) {
+          firstToken = token;
+        } else if (!middleToken) {
+          middleToken = token;
+        } else {
+          firstToken = middleToken;
+          middleToken = token;
+        }
+
+        if (token.type === 'comment') {
+          comments.push(token);
+        }
+      });
+    }
+  });
+
+  return {
+    tokenPrev,
+    tokenNext,
+    nodeToFirstToken,
+    nodeToLastToken,
+    comments
+  };
+}
+
 function getCommentValue(comment: string): string {
-  return comment.slice(1).trimLeft();
+  return comment.slice(1).trimStart();
 }
 
 /**
@@ -122,29 +191,28 @@ export class YAMLSourceCode extends TextSourceCodeBase<{
   /**
    * The comment tokens in the source code.
    */
-  comments: CST.SourceToken[] = [];
+  comments: CST.SourceToken[];
 
   #steps?: TraversalStep[];
   #parents: WeakMap<NodeLike, NodeLike> = new WeakMap();
   #lineCounter: LineCounter;
   #inlineConfigComments?: CST.SourceToken[];
-  #tokenStarts: Map<number, number> = new Map();
-  #tokenEnds: Map<number, number> = new Map();
+  #tokenPrev: WeakMap<CST.SourceToken, CST.SourceToken>;
+  #tokenNext: WeakMap<CST.SourceToken, CST.SourceToken>;
+  #nodeToFirstToken: WeakMap<NodeLike, CST.SourceToken>;
+  #nodeToLastToken: WeakMap<NodeLike, CST.SourceToken>;
 
   constructor({text, ast, lineCounter}: YAMLSourceCodeOptions) {
     super({text, ast});
     this.ast = ast;
     this.#lineCounter = lineCounter;
 
-    visit(ast, {
-      Node: (_key, node) => {
-        if (!node.srcToken) {
-          return;
-        }
-
-        processTokens(node.srcToken, this.comments);
-      }
-    });
+    const processResult = processTokens(ast);
+    this.comments = processResult.comments;
+    this.#tokenPrev = processResult.tokenPrev;
+    this.#tokenNext = processResult.tokenNext;
+    this.#nodeToFirstToken = processResult.nodeToFirstToken;
+    this.#nodeToLastToken = processResult.nodeToLastToken;
   }
 
   /** @inheritdoc */
@@ -336,8 +404,19 @@ export class YAMLSourceCode extends TextSourceCodeBase<{
     nodeOrToken: CST.SourceToken | NodeLike,
     {includeComments = false}: {includeComments?: boolean} = {}
   ): CST.SourceToken | null {
-    // TODO
-    return null;
+    if (isNode(nodeOrToken) || isPair(nodeOrToken) || isDocument(nodeOrToken)) {
+      const token = this.#nodeToFirstToken.get(nodeOrToken);
+      if (!token) {
+        return null;
+      }
+      return (
+        getSiblingTokenFromMap(token, this.#tokenPrev, includeComments) ?? null
+      );
+    }
+    return (
+      getSiblingTokenFromMap(nodeOrToken, this.#tokenPrev, includeComments) ??
+      null
+    );
   }
 
   /** @inheritdoc */
@@ -345,7 +424,18 @@ export class YAMLSourceCode extends TextSourceCodeBase<{
     nodeOrToken: CST.SourceToken | NodeLike,
     {includeComments = false}: {includeComments?: boolean} = {}
   ): CST.SourceToken | null {
-    // TODO
-    return null;
+    if (isNode(nodeOrToken) || isPair(nodeOrToken) || isDocument(nodeOrToken)) {
+      const token = this.#nodeToLastToken.get(nodeOrToken);
+      if (!token) {
+        return null;
+      }
+      return (
+        getSiblingTokenFromMap(token, this.#tokenNext, includeComments) ?? null
+      );
+    }
+    return (
+      getSiblingTokenFromMap(nodeOrToken, this.#tokenNext, includeComments) ??
+      null
+    );
   }
 }
