@@ -277,6 +277,7 @@ foo:
       const bazMap = barPair.value as YAMLMap<Scalar, Scalar>;
       const bazPair = bazMap.items[0] as Pair<Scalar, Scalar>;
 
+      // eslint-disable-next-line @typescript-eslint/no-unused-expressions
       [...sourceCode.traverse()];
 
       // `baz:`
@@ -304,6 +305,7 @@ foo:
     it('should return undefined for unknown parents', () => {
       const sourceCode = getSourceCodeForText('foo: 303');
 
+      // eslint-disable-next-line @typescript-eslint/no-unused-expressions
       [...sourceCode.traverse()];
 
       const node = new Scalar(303);
