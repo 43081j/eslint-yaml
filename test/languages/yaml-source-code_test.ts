@@ -329,7 +329,7 @@ foo:
       expect(steps[0].target).toBe(fooMap);
       expect(steps[0].phase).toBe(1);
       expect(steps[0].args[0]).toBe(fooMap);
-      expect(steps[0].args[1]).toBe(null);
+      expect(steps[0].args[1]).toBe(sourceCode.ast);
     });
   });
 

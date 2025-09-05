@@ -281,14 +281,15 @@ export class YAMLSourceCode extends TextSourceCodeBase<{
       if (!isNode(node) && !isPair(node)) {
         return;
       }
-      if (path.length > 0) {
-        this.#parents.set(node, path[path.length - 1]);
+      const parent = path.length > 0 ? path[path.length - 1] : null;
+      if (parent) {
+        this.#parents.set(node, parent);
       }
       steps.push(
         new VisitNodeStep({
           target: node,
           phase: 1,
-          args: [node, null]
+          args: [node, parent]
         })
       );
     });

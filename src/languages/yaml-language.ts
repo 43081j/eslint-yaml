@@ -31,24 +31,24 @@ export type YAMLOkParseResult = OkParseResult<Document>;
 
 function getNodeType(node: NodeLike): string {
   if (isAlias(node)) {
-    return 'alias';
+    return 'Alias';
   }
   if (isDocument(node)) {
-    return 'document';
+    return 'Document';
   }
   if (isMap(node)) {
-    return 'map';
+    return 'Map';
   }
   if (isPair(node)) {
-    return 'pair';
+    return 'Pair';
   }
   if (isScalar(node)) {
-    return 'scalar';
+    return 'Scalar';
   }
   if (isSeq(node)) {
-    return 'seq';
+    return 'Seq';
   }
-  return 'unknown';
+  return 'Unknown';
 }
 
 function addNodeType(node: NodeLike): void {
@@ -93,10 +93,10 @@ export class YAMLLanguage
    * The visitor keys.
    */
   visitorKeys: Record<string, string[]> = {
-    document: ['contents'],
-    map: ['items'],
-    seq: ['items'],
-    pair: ['key', 'value']
+    Document: ['contents'],
+    Map: ['items'],
+    Seq: ['items'],
+    Pair: ['key', 'value']
   };
 
   #lineCounter?: LineCounter;
