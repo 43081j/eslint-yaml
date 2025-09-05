@@ -90,14 +90,14 @@ export class YAMLLanguage
   /**
    * The visitor keys.
    */
-  visitorKeys?: Record<string, string[]> = {
+  visitorKeys: Record<string, string[]> = {
     document: ['contents'],
     map: ['items'],
     seq: ['items'],
     pair: ['key', 'value']
   };
 
-  lineCounter?: LineCounter;
+  #lineCounter?: LineCounter;
 
   /**
    * Validates the language options.
@@ -116,7 +116,7 @@ export class YAMLLanguage
     const text = file.body as string;
     const lineCounter = new LineCounter();
 
-    this.lineCounter = lineCounter;
+    this.#lineCounter = lineCounter;
 
     try {
       const root = parseDocument(text, {
@@ -174,7 +174,7 @@ export class YAMLLanguage
     return new YAMLSourceCode({
       text: file.body as string,
       ast: parseResult.ast,
-      lineCounter: this.lineCounter!
+      lineCounter: this.#lineCounter!
     });
   }
 }
