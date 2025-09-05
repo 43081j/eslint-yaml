@@ -1,3 +1,3 @@
-import type {Linter} from 'eslint';
+import type {RuleDefinition} from '@eslint/core';
 
-export const rules: Linter.RulesRecord = {};
+export const rules: Record<string, RuleDefinition> = {};

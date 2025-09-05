@@ -102,7 +102,9 @@ export class YAMLLanguage
   /**
    * Validates the language options.
    */
-  validateLanguageOptions(languageOptions: YAMLLanguageOptions): void {}
+  validateLanguageOptions(_languageOptions: YAMLLanguageOptions): void {
+    return;
+  }
 
   /**
    * Parses the given file into an AST.

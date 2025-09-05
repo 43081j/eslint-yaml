@@ -1,5 +1,5 @@
 import type {ESLint} from 'eslint';
-import {YAMLanguage} from './languages/yaml-language.js';
+import {YAMLLanguage} from './languages/yaml-language.js';
 import {YAMLSourceCode} from './languages/yaml-source-code.js';
 import {createConfig as createRecommendedConfig} from './configs/recommended.js';
 import {rules} from './rules/all.js';
