@@ -7,6 +7,7 @@ import {
 import {
   type Document,
   type CST,
+  type Pair,
   isPair,
   isNode,
   isDocument,
@@ -23,6 +24,13 @@ import {
 } from '@eslint/core';
 import {YAMLLanguageOptions} from './yaml-language.js';
 import type {NodeLike} from './types.js';
+
+function isNodeLikePair(node: Pair): node is Pair<NodeLike, NodeLike> {
+  return (
+    (isNode(node.key) || isPair(node.key)) &&
+    (isNode(node.value) || isPair(node.value))
+  );
+}
 
 const commentParser = new ConfigCommentParser();
 
@@ -224,14 +232,28 @@ export class YAMLSourceCode extends TextSourceCodeBase<{
 
   /** @inheritdoc */
   getLoc(node: NodeLike): SourceLocation {
+    if (isPair(node)) {
+      if (!isNodeLikePair(node) || !node.value) {
+        return {
+          start: {line: 0, column: 0},
+          end: {line: 0, column: 0}
+        };
+      }
+      const {start} = this.getLoc(node.key);
+      const {end} = this.getLoc(node.value);
+
+      return {start, end};
+    }
+
     // TODO (43081j): really we want `undefined` here but it looks like eslint
     // expects a source location either way
-    if (isPair(node) || !node.range) {
+    if (!node.range) {
       return {
         start: {line: 0, column: 0},
         end: {line: 0, column: 0}
       };
     }
+
     const start = this.#lineCounter.linePos(node.range[0]);
     const end = this.#lineCounter.linePos(node.range[2]);
     return {
@@ -248,11 +270,20 @@ export class YAMLSourceCode extends TextSourceCodeBase<{
 
   /** @inheritdoc */
   getRange(node: NodeLike): SourceRange {
+    if (isPair(node)) {
+      if (!isNodeLikePair(node) || !node.value) {
+        return [0, 0];
+      }
+
+      return [this.getRange(node.key)[0], this.getRange(node.value)[1]];
+    }
+
     // TODO (43081j): really we want `undefined` here but it looks like eslint
     // expects a range one way or another?
-    if (isPair(node) || !node.range) {
+    if (!node.range) {
       return [0, 0];
     }
+
     return [node.range[0], node.range[2]];
   }
 
