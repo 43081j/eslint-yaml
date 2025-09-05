@@ -400,4 +400,72 @@ foo:
       expect(token).toBe(null);
     });
   });
+
+  describe('getTokenAfter', () => {
+    it('should return null for unknown nodes', () => {
+      const sourceCode = getSourceCodeForText('foo: 303');
+      const node = new Scalar(303);
+      expect(sourceCode.getTokenAfter(node)).toBeNull();
+    });
+
+    it('should return null for unknown tokens', () => {
+      const sourceCode = getSourceCodeForText('foo: 303');
+      const token = {
+        type: 'comment',
+        offset: 1,
+        source: 'foo'
+      } as CST.SourceToken;
+      expect(sourceCode.getTokenAfter(token)).toBeNull();
+    });
+
+    it('should return next token for nodes', () => {
+      const sourceCode = getSourceCodeForText('foo: bar # Comment');
+      const map = sourceCode.ast.contents as YAMLMap;
+      const pair = map.items[0] as Pair<Scalar, Scalar>;
+
+      const pairKey = sourceCode.getTokenAfter(pair.key) as CST.SourceToken;
+      expect(pairKey.type).toBe('map-value-ind');
+      expect(pairKey.source).toBe(':');
+    });
+
+    it('should return null if no next token for nodes', () => {
+      const sourceCode = getSourceCodeForText('foo: bar');
+      const map = sourceCode.ast.contents as YAMLMap;
+      const pair = map.items[0] as Pair<Scalar, Scalar>;
+
+      const token = sourceCode.getTokenAfter(pair.value!);
+      expect(token).toBe(null);
+    });
+
+    it('should return next token for pairs', () => {
+      const sourceCode = getSourceCodeForText('foo: 303\nbar: 808');
+      const map = sourceCode.ast.contents as YAMLMap;
+      const pair = map.items[0] as Pair<Scalar, Scalar>;
+
+      const pairToken = sourceCode.getTokenAfter(pair) as CST.FlowScalar;
+      expect(pairToken.type).toBe('scalar');
+      expect(pairToken.source).toBe('bar');
+    });
+
+    it('should return next token for tokens', () => {
+      const sourceCode = getSourceCodeForText('foo: 303 # Comment');
+      const map = sourceCode.ast.contents as YAMLMap;
+      const pair = map.items[0] as Pair<Scalar, Scalar>;
+      const keyToken = pair.key.srcToken as CST.FlowScalar;
+
+      const token = sourceCode.getTokenAfter(keyToken) as CST.SourceToken;
+      expect(token.type).toBe('map-value-ind');
+      expect(token.source).toBe(':');
+    });
+
+    it('should return null if no next token for tokens', () => {
+      const sourceCode = getSourceCodeForText('foo: 303');
+      const map = sourceCode.ast.contents as YAMLMap;
+      const pair = map.items[0] as Pair<Scalar, Scalar>;
+      const valueToken = pair.value!.srcToken as CST.FlowScalar;
+
+      const token = sourceCode.getTokenAfter(valueToken);
+      expect(token).toBe(null);
+    });
+  });
 });

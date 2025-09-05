@@ -148,6 +148,7 @@ function processTokens(ast: Document): {
     visitTokens(ast.contents.srcToken, (token) => {
       if (firstToken && middleToken) {
         tokenPrev.set(middleToken, firstToken);
+        tokenNext.set(firstToken, middleToken);
         tokenNext.set(middleToken, token);
       }
       if (!firstToken) {
