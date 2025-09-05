@@ -9,7 +9,12 @@ import {
   type Node,
   type Pair,
   type CST,
+  type YAMLMap,
+  type YAMLSeq,
   isPair,
+  isNode,
+  isSeq,
+  isMap,
   type LineCounter,
   visit
 } from 'yaml';
@@ -36,6 +41,70 @@ interface YAMLSourceCodeOptions {
   lineCounter: LineCounter;
 }
 
+function processTokens(
+  node: CST.Token,
+  comments: CST.SourceToken[] = []
+): void {
+  switch (node.type) {
+    case 'comment':
+      comments.push(node);
+      break;
+    case 'document':
+    case 'doc-end':
+    case 'alias':
+    case 'scalar':
+    case 'single-quoted-scalar':
+    case 'double-quoted-scalar': {
+      if (node.end) {
+        for (const childToken of node.end) {
+          processTokens(childToken, comments);
+        }
+      }
+      break;
+    }
+    case 'block-scalar': {
+      for (const childToken of node.props) {
+        processTokens(childToken, comments);
+      }
+      break;
+    }
+    case 'block-seq':
+    case 'block-map': {
+      for (const item of node.items) {
+        for (const childToken of item.start) {
+          processTokens(childToken, comments);
+        }
+        if (item.value) {
+          processTokens(item.value, comments);
+        }
+        if (item.key) {
+          processTokens(item.key, comments);
+        }
+      }
+      break;
+    }
+    case 'flow-collection': {
+      processTokens(node.start, comments);
+      for (const item of node.items) {
+        if (item.key) {
+          processTokens(item.key, comments);
+        }
+        if (item.value) {
+          processTokens(item.value, comments);
+        }
+      }
+      for (const childToken of node.end) {
+        processTokens(childToken, comments);
+      }
+      break;
+    }
+  }
+}
+
+function getCommentValue(comment: string): string {
+  return comment.slice(1).trimLeft();
+}
+
 /**
  * YAML Source Code Object
  */
@@ -43,7 +112,7 @@ export class YAMLSourceCode extends TextSourceCodeBase<{
   LangOptions: YAMLLanguageOptions;
   RootNode: Document;
   SyntaxElementWithLoc: NodeLike;
-  ConfigNode: unknown;
+  ConfigNode: CST.SourceToken;
 }> {
   /**
    * The AST of the source code.
@@ -56,17 +125,38 @@ export class YAMLSourceCode extends TextSourceCodeBase<{
   comments: CST.SourceToken[] = [];
 
   #steps?: TraversalStep[];
-  #parents: WeakMap<Node, NodeLike> = new WeakMap();
+  #parents: WeakMap<NodeLike, NodeLike> = new WeakMap();
   #lineCounter: LineCounter;
+  #inlineConfigComments?: CST.SourceToken[];
+  #tokenStarts: Map<number, number> = new Map();
+  #tokenEnds: Map<number, number> = new Map();
 
   constructor({text, ast, lineCounter}: YAMLSourceCodeOptions) {
     super({text, ast});
     this.ast = ast;
     this.#lineCounter = lineCounter;
+
+    visit(ast, {
+      Node: (_key, node) => {
+        if (!node.srcToken) {
+          return;
+        }
+
+        processTokens(node.srcToken, this.comments);
+      }
+    });
   }
 
   /** @inheritdoc */
-  getInlineConfigNodes(): unknown[] {}
+  getInlineConfigNodes(): CST.SourceToken[] {
+    if (!this.#inlineConfigComments) {
+      this.#inlineConfigComments = this.comments.filter((comment) =>
+        INLINE_CONFIG.test(getCommentValue(comment.source))
+      );
+    }
+
+    return this.#inlineConfigComments;
+  }
 
   /** @inheritdoc */
   getLoc(node: NodeLike): SourceLocation {
@@ -111,47 +201,53 @@ export class YAMLSourceCode extends TextSourceCodeBase<{
     const directives: Directive[] = [];
 
     for (const comment of this.getInlineConfigNodes()) {
-      const {label, value, justification} = commentParser.parseDirective(
-        this.#getCommentValue(comment)
+      const parsedComment = commentParser.parseDirective(
+        getCommentValue(comment.source)
       );
 
-      // `eslint-disable-line` directives are not allowed to span multiple lines as it would be confusing to which lines they apply
-      if (
-        label === 'eslint-disable-line' &&
-        comment.loc.start.line !== comment.loc.end.line
-      ) {
-        const message = `${label} comment should not span multiple lines.`;
-
-        problems.push({
-          ruleId: null,
-          message,
-          loc: comment.loc
-        });
-        return;
+      if (!parsedComment) {
+        continue;
       }
+
+      const {label, value, justification} = parsedComment;
 
       switch (label) {
         case 'eslint-disable':
         case 'eslint-enable':
         case 'eslint-disable-next-line':
         case 'eslint-disable-line': {
-          const directiveType = label.slice('eslint-'.length);
+          const directiveType: DirectiveType = label.slice(
+            'eslint-'.length
+          ) as DirectiveType;
 
           directives.push(
             new Directive({
-              type: /** @type {DirectiveType} */ directiveType,
+              type: directiveType,
               node: comment,
               value,
               justification
             })
           );
         }
-
-        // no default
       }
     }
 
     return {problems, directives};
+  }
+
+  #getSourceTokenLoc(token: CST.SourceToken): SourceLocation {
+    const start = this.#lineCounter.linePos(token.offset);
+    const end = this.#lineCounter.linePos(token.offset + token.source.length);
+    return {
+      start: {
+        line: start.line,
+        column: start.col
+      },
+      end: {
+        line: end.line,
+        column: end.col
+      }
+    };
   }
 
   /** @inheritdoc */
@@ -164,27 +260,32 @@ export class YAMLSourceCode extends TextSourceCodeBase<{
       [];
 
     for (const comment of this.getInlineConfigNodes()) {
-      const {label, value} = commentParser.parseDirective(
-        this.#getCommentValue(comment)
+      const parsedComment = commentParser.parseDirective(
+        getCommentValue(comment.source)
       );
+
+      if (!parsedComment) {
+        continue;
+      }
+
+      const {label, value} = parsedComment;
 
       if (label === 'eslint') {
         const parseResult = commentParser.parseJSONLikeConfig(value);
+        const loc = this.#getSourceTokenLoc(comment);
 
         if (parseResult.ok) {
           configs.push({
             config: {
               rules: parseResult.config
             },
-            loc: comment.loc
+            loc
           });
         } else {
           problems.push({
             ruleId: null,
-            message:
-              /** @type {{ok: false, error: { message: string }}} */ parseResult
-                .error.message,
-            loc: comment.loc
+            message: parseResult.error.message,
+            loc
           });
         }
       }
@@ -197,7 +298,7 @@ export class YAMLSourceCode extends TextSourceCodeBase<{
   }
 
   /** @inheritdoc */
-  getParent(node: Node): NodeLike | undefined {
+  getParent(node: NodeLike): NodeLike | undefined {
     return this.#parents.get(node);
   }
 
@@ -211,19 +312,20 @@ export class YAMLSourceCode extends TextSourceCodeBase<{
 
     this.#steps = steps;
 
-    visit(this.ast, {
-      Node: (_key, node, path) => {
-        if (path.length > 0) {
-          this.#parents.set(node, path[path.length - 1]);
-        }
-        steps.push(
-          new VisitNodeStep({
-            target: node,
-            phase: 1,
-            args: [node, null]
-          })
-        );
+    visit(this.ast, (_key, node, path) => {
+      if (!isNode(node) && !isPair(node)) {
+        return;
       }
+      if (path.length > 0) {
+        this.#parents.set(node, path[path.length - 1]);
+      }
+      steps.push(
+        new VisitNodeStep({
+          target: node,
+          phase: 1,
+          args: [node, null]
+        })
+      );
     });
 
     return steps;
