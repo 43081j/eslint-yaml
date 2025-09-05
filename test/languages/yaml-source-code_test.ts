@@ -1,4 +1,4 @@
-import {type YAMLMap, type Scalar, type CST} from 'yaml';
+import {type YAMLMap, type YAMLSeq, Scalar, type Pair, type CST} from 'yaml';
 import {
   YAMLLanguage,
   type YAMLOkParseResult
@@ -221,6 +221,183 @@ bar: 303
       );
       expect(directives[0].value).toEqual('');
       expect(directives[0].justification).toBe('');
+    });
+  });
+
+  describe('applyInlineConfig', () => {
+    it('should handle inline config', () => {
+      const sourceCode = getSourceCodeForText(`
+foo: 303
+# eslint someRule: "foo", anotherRule: "bar"
+bar: 808
+      `);
+      const {configs, problems} = sourceCode.applyInlineConfig();
+      expect(problems).toHaveLength(0);
+      expect(configs).toHaveLength(1);
+      expect(configs[0]).toEqual({
+        config: {
+          rules: {
+            someRule: 'foo',
+            anotherRule: 'bar'
+          }
+        },
+        loc: {
+          start: {line: 3, column: 1},
+          end: {line: 3, column: 45}
+        }
+      });
+    });
+
+    it('should return problems', () => {
+      const sourceCode = getSourceCodeForText(`
+foo: 303
+# eslint oogabooga: !
+bar: 808
+      `);
+      const {configs, problems} = sourceCode.applyInlineConfig();
+      expect(configs).toHaveLength(0);
+      expect(problems).toHaveLength(1);
+      expect(problems).toMatchSnapshot();
+    });
+  });
+
+  describe('getParent', () => {
+    it('should retrieve parent nodes', () => {
+      const sourceCode = getSourceCodeForText(`
+foo:
+- bar:
+    baz: boop
+      `);
+
+      const fooMap = sourceCode.ast.contents as YAMLMap;
+      const fooPair = fooMap.items[0] as Pair<Scalar, YAMLSeq>;
+      const seq = fooPair.value as YAMLSeq<YAMLMap>;
+      const barMap = seq.items[0] as YAMLMap<Scalar, YAMLMap>;
+      const barPair = barMap.items[0] as Pair<Scalar, YAMLMap>;
+      const bazMap = barPair.value as YAMLMap<Scalar, Scalar>;
+      const bazPair = bazMap.items[0] as Pair<Scalar, Scalar>;
+
+      [...sourceCode.traverse()];
+
+      // `baz:`
+      expect(sourceCode.getParent(bazPair.key)).toBe(bazPair);
+      // `boop`
+      expect(sourceCode.getParent(bazPair.value!)).toBe(bazPair);
+      // `baz: boop`
+      expect(sourceCode.getParent(bazPair)).toBe(bazMap);
+      // `baz: boop` map
+      expect(sourceCode.getParent(bazMap)).toBe(barPair);
+      // `bar:`
+      expect(sourceCode.getParent(barPair.key)).toBe(barPair);
+      // `bar: baz: boop`
+      expect(sourceCode.getParent(barPair)).toBe(barMap);
+      // `bar: ...` map
+      expect(sourceCode.getParent(barMap)).toBe(seq);
+      // `- bar: ...`
+      expect(sourceCode.getParent(seq)).toBe(fooPair);
+      // `foo:`
+      expect(sourceCode.getParent(fooPair.key)).toBe(fooPair);
+      // `foo: -baz: ...`
+      expect(sourceCode.getParent(fooPair)).toBe(fooMap);
+    });
+
+    it('should return undefined for unknown parents', () => {
+      const sourceCode = getSourceCodeForText('foo: 303');
+
+      [...sourceCode.traverse()];
+
+      const node = new Scalar(303);
+
+      expect(sourceCode.getParent(node)).toBeUndefined();
+    });
+  });
+
+  describe('traverse', () => {
+    it('should produce steps for all nodes', () => {
+      const sourceCode = getSourceCodeForText(`
+foo:
+- bar:
+    baz: boop
+      `);
+
+      const steps = [...sourceCode.traverse()];
+      const fooMap = sourceCode.ast.contents as YAMLMap;
+
+      expect(steps).toHaveLength(11);
+      expect(steps[0].target).toBe(fooMap);
+      expect(steps[0].phase).toBe(1);
+      expect(steps[0].args[0]).toBe(fooMap);
+      expect(steps[0].args[1]).toBe(null);
+    });
+  });
+
+  describe('getTokenBefore', () => {
+    it('should return null for unknown nodes', () => {
+      const sourceCode = getSourceCodeForText('foo: 303');
+      const node = new Scalar(303);
+      expect(sourceCode.getTokenBefore(node)).toBeNull();
+    });
+
+    it('should return null for unknown tokens', () => {
+      const sourceCode = getSourceCodeForText('foo: 303');
+      const token = {
+        type: 'comment',
+        offset: 1,
+        source: 'foo'
+      } as CST.SourceToken;
+      expect(sourceCode.getTokenBefore(token)).toBeNull();
+    });
+
+    it('should return previous token for nodes', () => {
+      const sourceCode = getSourceCodeForText('foo: bar');
+      const map = sourceCode.ast.contents as YAMLMap;
+      const pair = map.items[0] as Pair<Scalar, Scalar>;
+
+      const pairValue = sourceCode.getTokenBefore(
+        pair.value!
+      ) as CST.SourceToken;
+      expect(pairValue.type).toBe('space');
+      expect(pairValue.source).toBe(' ');
+    });
+
+    it('should return null if no previous token for nodes', () => {
+      const sourceCode = getSourceCodeForText('foo: bar');
+      const map = sourceCode.ast.contents as YAMLMap;
+      const pair = map.items[0] as Pair<Scalar, Scalar>;
+
+      const token = sourceCode.getTokenBefore(pair.key);
+      expect(token).toBe(null);
+    });
+
+    it('should return previous token for pairs', () => {
+      const sourceCode = getSourceCodeForText('foo: 303\nbar: 808');
+      const map = sourceCode.ast.contents as YAMLMap;
+      const pair = map.items[1] as Pair<Scalar, Scalar>;
+
+      const pairToken = sourceCode.getTokenBefore(pair) as CST.FlowScalar;
+      expect(pairToken.type).toBe('scalar');
+      expect(pairToken.source).toBe('303');
+    });
+
+    it('should return previous token for tokens', () => {
+      const sourceCode = getSourceCodeForText('foo: 303');
+      const map = sourceCode.ast.contents as YAMLMap;
+      const pair = map.items[0] as Pair<Scalar, Scalar>;
+      const valueToken = pair.value!.srcToken as CST.FlowScalar;
+
+      const token = sourceCode.getTokenBefore(valueToken) as CST.SourceToken;
+      expect(token.type).toBe('space');
+      expect(token.source).toBe(' ');
+    });
+
+    it('should return null if no previous token for tokens', () => {
+      const sourceCode = getSourceCodeForText('foo: 303');
+      const map = sourceCode.ast.contents as YAMLMap;
+      const pair = map.items[0] as Pair<Scalar, Scalar>;
+      const keyToken = pair.key.srcToken as CST.FlowScalar;
+
+      const token = sourceCode.getTokenBefore(keyToken);
+      expect(token).toBe(null);
     });
   });
 });

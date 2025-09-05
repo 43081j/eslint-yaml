@@ -29,7 +29,8 @@
     "format": "prettier --write src test",
     "lint:js": "eslint src test",
     "lint:format": "prettier --check src test",
-    "lint": "npm run lint:js && npm run lint:format",
+    "typecheck:tests": "tsc -p tsconfig.test.json",
+    "lint": "npm run lint:js && npm run lint:format && npm run typecheck:tests",
     "test": "vitest run"
   },
   "devDependencies": {

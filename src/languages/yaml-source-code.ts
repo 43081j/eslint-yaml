@@ -43,16 +43,25 @@ interface YAMLSourceCodeOptions {
   lineCounter: LineCounter;
 }
 
-function visitSourceTokens(
+function visitTokens(
   root: CST.Token,
-  callback: (token: CST.SourceToken) => void
+  callback: (token: CST.Token) => void
 ): void {
   const queue: CST.Token[] = [];
   let currentNode: CST.Token | undefined = root;
 
   while (currentNode) {
     switch (currentNode.type) {
-      case 'document':
+      case 'document': {
+        queue.push(...currentNode.start);
+        if (currentNode.value) {
+          queue.push(currentNode.value);
+        }
+        if (currentNode.end) {
+          queue.push(...currentNode.end);
+        }
+        break;
+      }
       case 'doc-end':
       case 'alias':
       case 'scalar':
@@ -61,24 +70,26 @@ function visitSourceTokens(
         if (currentNode.end) {
           queue.push(...currentNode.end);
         }
+        callback(currentNode);
         break;
       }
       case 'block-scalar': {
         queue.push(...currentNode.props);
+        callback(currentNode);
         break;
       }
       case 'block-seq':
       case 'block-map': {
         for (const item of currentNode.items) {
           queue.push(...item.start);
-          if (item.value) {
-            queue.push(item.value);
-          }
           if (item.key) {
             queue.push(item.key);
           }
           if (item.sep) {
             queue.push(...item.sep);
+          }
+          if (item.value) {
+            queue.push(item.value);
           }
         }
         break;
@@ -98,7 +109,6 @@ function visitSourceTokens(
       }
       case 'directive':
       case 'error':
-        break;
       default: {
         callback(currentNode);
       }
@@ -109,10 +119,10 @@ function visitSourceTokens(
 }
 
 function getSiblingTokenFromMap(
-  token: CST.SourceToken,
-  tokenMap: WeakMap<CST.SourceToken, CST.SourceToken>,
+  token: CST.Token,
+  tokenMap: WeakMap<CST.Token, CST.Token>,
   includeComments: boolean
-): CST.SourceToken | undefined {
+): CST.Token | undefined {
   let current = tokenMap.get(token);
   if (includeComments) {
     return current;
@@ -124,30 +134,20 @@ function getSiblingTokenFromMap(
 }
 
 function processTokens(ast: Document): {
-  tokenPrev: WeakMap<CST.SourceToken, CST.SourceToken>;
-  tokenNext: WeakMap<CST.SourceToken, CST.SourceToken>;
-  nodeToFirstToken: WeakMap<NodeLike, CST.SourceToken>;
-  nodeToLastToken: WeakMap<NodeLike, CST.SourceToken>;
+  tokenPrev: WeakMap<CST.Token, CST.Token>;
+  tokenNext: WeakMap<CST.Token, CST.Token>;
   comments: CST.SourceToken[];
 } {
-  const tokenPrev = new WeakMap<CST.SourceToken, CST.SourceToken>();
-  const tokenNext = new WeakMap<CST.SourceToken, CST.SourceToken>();
-  const nodeToFirstToken = new WeakMap<NodeLike, CST.SourceToken>();
-  const nodeToLastToken = new WeakMap<NodeLike, CST.SourceToken>();
-  let firstToken: CST.SourceToken | undefined;
-  let middleToken: CST.SourceToken | undefined;
+  const tokenPrev = new WeakMap<CST.Token, CST.Token>();
+  const tokenNext = new WeakMap<CST.Token, CST.Token>();
+  let firstToken: CST.Token | undefined;
+  let middleToken: CST.Token | undefined;
   const comments: CST.SourceToken[] = [];
 
   if (ast.contents?.srcToken) {
-    const node = ast.contents;
-
-    visitSourceTokens(ast.contents.srcToken, (token) => {
-      if (!nodeToFirstToken.has(node)) {
-        nodeToFirstToken.set(node, token);
-      }
-      nodeToLastToken.set(node, token);
+    visitTokens(ast.contents.srcToken, (token) => {
       if (firstToken && middleToken) {
-        tokenPrev.set(firstToken, middleToken);
+        tokenPrev.set(middleToken, firstToken);
         tokenNext.set(middleToken, token);
       }
       if (!firstToken) {
@@ -163,13 +163,15 @@ function processTokens(ast: Document): {
         comments.push(token);
       }
     });
+
+    if (firstToken && middleToken) {
+      tokenPrev.set(middleToken, firstToken);
+    }
   }
 
   return {
     tokenPrev,
     tokenNext,
-    nodeToFirstToken,
-    nodeToLastToken,
     comments
   };
 }
@@ -201,10 +203,8 @@ export class YAMLSourceCode extends TextSourceCodeBase<{
   #parents: WeakMap<NodeLike, NodeLike> = new WeakMap();
   #lineCounter: LineCounter;
   #inlineConfigComments?: CST.SourceToken[];
-  #tokenPrev: WeakMap<CST.SourceToken, CST.SourceToken>;
-  #tokenNext: WeakMap<CST.SourceToken, CST.SourceToken>;
-  #nodeToFirstToken: WeakMap<NodeLike, CST.SourceToken>;
-  #nodeToLastToken: WeakMap<NodeLike, CST.SourceToken>;
+  #tokenPrev: WeakMap<CST.Token, CST.Token>;
+  #tokenNext: WeakMap<CST.Token, CST.Token>;
 
   constructor({text, ast, lineCounter}: YAMLSourceCodeOptions) {
     super({text, ast});
@@ -215,8 +215,6 @@ export class YAMLSourceCode extends TextSourceCodeBase<{
     this.comments = processResult.comments;
     this.#tokenPrev = processResult.tokenPrev;
     this.#tokenNext = processResult.tokenNext;
-    this.#nodeToFirstToken = processResult.nodeToFirstToken;
-    this.#nodeToLastToken = processResult.nodeToLastToken;
   }
 
   /** @inheritdoc */
@@ -426,13 +424,29 @@ export class YAMLSourceCode extends TextSourceCodeBase<{
     return steps;
   }
 
+  #getNodeToken(node: NodeLike, end?: boolean): CST.Token | undefined {
+    if (isNode(node)) {
+      return node.srcToken;
+    }
+    if (isPair(node) && node.srcToken) {
+      if (end) {
+        return node.srcToken.value;
+      }
+      if (node.srcToken.start.length > 0) {
+        return node.srcToken.start[0];
+      }
+      return node.srcToken.key ?? undefined;
+    }
+    return undefined;
+  }
+
   /** @inheritdoc */
   getTokenBefore(
-    nodeOrToken: CST.SourceToken | NodeLike,
+    nodeOrToken: CST.Token | NodeLike,
     {includeComments = false}: {includeComments?: boolean} = {}
-  ): CST.SourceToken | null {
+  ): CST.Token | null {
     if (isNode(nodeOrToken) || isPair(nodeOrToken) || isDocument(nodeOrToken)) {
-      const token = this.#nodeToFirstToken.get(nodeOrToken);
+      const token = this.#getNodeToken(nodeOrToken);
       if (!token) {
         return null;
       }
@@ -448,11 +462,11 @@ export class YAMLSourceCode extends TextSourceCodeBase<{
 
   /** @inheritdoc */
   getTokenAfter(
-    nodeOrToken: CST.SourceToken | NodeLike,
+    nodeOrToken: CST.Token | NodeLike,
     {includeComments = false}: {includeComments?: boolean} = {}
-  ): CST.SourceToken | null {
+  ): CST.Token | null {
     if (isNode(nodeOrToken) || isPair(nodeOrToken) || isDocument(nodeOrToken)) {
-      const token = this.#nodeToLastToken.get(nodeOrToken);
+      const token = this.#getNodeToken(nodeOrToken, true);
       if (!token) {
         return null;
       }
