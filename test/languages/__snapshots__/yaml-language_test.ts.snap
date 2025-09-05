@@ -1,0 +1,47 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`YAMLLanguage > parse() > should raise errors 1`] = `
+{
+  "errors": [
+    {
+      "column": 1,
+      "line": 2,
+      "message": "Map keys must be unique at line 2, column 1:
+
+foo: "bar"
+foo: "bar"
+^
+",
+    },
+  ],
+  "ok": false,
+}
+`;
+
+exports[`YAMLLanguage > parse() > should raise multiple errors 1`] = `
+{
+  "errors": [
+    {
+      "column": 1,
+      "line": 2,
+      "message": "Map keys must be unique at line 2, column 1:
+
+foo: "bar"
+foo: "bar"
+^
+",
+    },
+    {
+      "column": 1,
+      "line": 3,
+      "message": "Map keys must be unique at line 3, column 1:
+
+foo: "bar"
+foo: "bar"
+^
+",
+    },
+  ],
+  "ok": false,
+}
+`;

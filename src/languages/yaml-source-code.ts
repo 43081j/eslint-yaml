@@ -6,8 +6,6 @@ import {
 } from '@eslint/plugin-kit';
 import {
   type Document,
-  type Node,
-  type Pair,
   type CST,
   isPair,
   isNode,
@@ -24,13 +22,12 @@ import {
   type TraversalStep
 } from '@eslint/core';
 import {YAMLLanguageOptions} from './yaml-language.js';
+import type {NodeLike} from './types.js';
 
 const commentParser = new ConfigCommentParser();
 
 const INLINE_CONFIG =
   /^\s*eslint(?:-enable|-disable(?:(?:-next)?-line)?)?(?:\s|$)/u;
-
-type NodeLike = Node | Document | Pair;
 
 interface YAMLSourceCodeOptions {
   text: string;
@@ -71,6 +68,9 @@ function visitSourceTokens(
           }
           if (item.key) {
             queue.push(item.key);
+          }
+          if (item.sep) {
+            queue.push(...item.sep);
           }
         }
         break;
@@ -130,36 +130,32 @@ function processTokens(ast: Document): {
   let middleToken: CST.SourceToken | undefined;
   const comments: CST.SourceToken[] = [];
 
-  visit(ast, {
-    Node: (_key, node) => {
-      if (!node.srcToken) {
-        return;
+  if (ast.contents?.srcToken) {
+    const node = ast.contents;
+
+    visitSourceTokens(ast.contents.srcToken, (token) => {
+      if (!nodeToFirstToken.has(node)) {
+        nodeToFirstToken.set(node, token);
+      }
+      nodeToLastToken.set(node, token);
+      if (firstToken && middleToken) {
+        tokenPrev.set(firstToken, middleToken);
+        tokenNext.set(middleToken, token);
+      }
+      if (!firstToken) {
+        firstToken = token;
+      } else if (!middleToken) {
+        middleToken = token;
+      } else {
+        firstToken = middleToken;
+        middleToken = token;
       }
 
-      visitSourceTokens(node.srcToken, (token) => {
-        if (!nodeToFirstToken.has(node)) {
-          nodeToFirstToken.set(node, token);
-        }
-        nodeToLastToken.set(node, token);
-        if (firstToken && middleToken) {
-          tokenPrev.set(firstToken, middleToken);
-          tokenNext.set(middleToken, token);
-        }
-        if (!firstToken) {
-          firstToken = token;
-        } else if (!middleToken) {
-          middleToken = token;
-        } else {
-          firstToken = middleToken;
-          middleToken = token;
-        }
-
-        if (token.type === 'comment') {
-          comments.push(token);
-        }
-      });
-    }
-  });
+      if (token.type === 'comment') {
+        comments.push(token);
+      }
+    });
+  }
 
   return {
     tokenPrev,

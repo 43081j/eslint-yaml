@@ -8,6 +8,7 @@ import {
   isPair,
   isScalar,
   isSeq,
+  isNode,
   LineCounter,
   visit
 } from 'yaml';
@@ -19,6 +20,7 @@ import type {
   File,
   LanguageContext
 } from '@eslint/core';
+import type {NodeLike} from './types.js';
 
 export interface YAMLLanguageOptions {
   [key: PropertyKey]: unknown;
@@ -27,7 +29,7 @@ export interface YAMLLanguageOptions {
 export type YAMLParseResult = ParseResult<Document>;
 export type YAMLOkParseResult = OkParseResult<Document>;
 
-function getNodeType(node: Node): string {
+function getNodeType(node: NodeLike): string {
   if (isAlias(node)) {
     return 'alias';
   }
@@ -49,7 +51,7 @@ function getNodeType(node: Node): string {
   return 'unknown';
 }
 
-function addNodeType(node: Node): void {
+function addNodeType(node: NodeLike): void {
   Object.defineProperty(node, 'type', {
     value: getNodeType(node)
   });
@@ -143,8 +145,10 @@ export class YAMLLanguage
 
       // TODO (43081j): remove this if eslint ever allows node types to be
       // determined by a language function rather than a node property
-      visit(root, {
-        Node(_key, node) {
+      addNodeType(root);
+
+      visit(root, (_key, node) => {
+        if (isNode(node) || isPair(node) || isDocument(node)) {
           addNodeType(node);
         }
       });
