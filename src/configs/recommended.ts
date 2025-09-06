@@ -5,6 +5,8 @@ export function createConfig(plugin: ESLint.Plugin): Linter.Config {
     plugins: {
       yaml: plugin
     },
-    rules: {}
+    rules: {
+      'yaml/no-empty-mapping-value': 'error'
+    }
   };
 }

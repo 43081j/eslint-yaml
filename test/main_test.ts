@@ -1,4 +1,4 @@
-import {ESLint} from 'eslint';
+import {ESLint, type Linter} from 'eslint';
 import {expect, describe, it, beforeEach} from 'vitest';
 import * as yaml from '../src/main.js';
 
@@ -13,6 +13,14 @@ describe('main', () => {
       'rules',
       'configs'
     ]);
+  });
+
+  it('should correctly set recommended config', () => {
+    const recommendedConfig = yaml.yaml.configs?.recommended as Linter.Config;
+    expect(recommendedConfig.plugins?.yaml).toBe(yaml.yaml);
+    expect(recommendedConfig.rules).toEqual({
+      'yaml/no-empty-mapping-value': 'error'
+    });
   });
 
   describe('eslint integration', () => {

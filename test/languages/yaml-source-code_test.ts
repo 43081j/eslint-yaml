@@ -257,7 +257,15 @@ bar: 808
       const {configs, problems} = sourceCode.applyInlineConfig();
       expect(configs).toHaveLength(0);
       expect(problems).toHaveLength(1);
-      expect(problems).toMatchSnapshot();
+
+      const [problem] = problems;
+
+      expect(problem.loc).toEqual({
+        start: {line: 3, column: 1},
+        end: {line: 3, column: 22}
+      });
+      expect(problem.ruleId).toBe(null);
+      expect(problem.message).toContain('Unexpected token');
     });
   });
 
