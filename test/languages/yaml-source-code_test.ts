@@ -21,11 +21,12 @@ function getSourceCodeForText(text: string): YAMLSourceCode {
 }
 
 describe('YAMLSourceCode', () => {
-  it('should extract comments on non-documents', () => {
+  it('should extract comments', () => {
     const sourceCode = getSourceCodeForText(
       '# Comment 1\nfoo: bar # Comment 2\nbaz:\n  # Comment 3\n  - boop\n'
     );
     expect(sourceCode.comments).toEqual([
+      {type: 'comment', indent: 0, offset: 1, source: '# Comment 1'},
       {type: 'comment', indent: 2, offset: 40, source: '# Comment 3'},
       {type: 'comment', indent: 0, offset: 21, source: '# Comment 2'}
     ]);
@@ -39,16 +40,18 @@ describe('YAMLSourceCode', () => {
   describe('getInlineConfigNodes', () => {
     it('should get all the inline config nodes', () => {
       const sourceCode = getSourceCodeForText(`
+# eslint someRule: "foo"
 foo: 303 # eslint-disable-line foo
 # eslint-disable-next-line some-rule
 bar: 808 # not a config node
       `);
       const inlineConfigNodes = sourceCode.getInlineConfigNodes();
-      expect(inlineConfigNodes).toHaveLength(2);
-      expect(inlineConfigNodes[0].source).toBe(
+      expect(inlineConfigNodes).toHaveLength(3);
+      expect(inlineConfigNodes[0].source).toBe('# eslint someRule: "foo"');
+      expect(inlineConfigNodes[1].source).toBe(
         '# eslint-disable-next-line some-rule'
       );
-      expect(inlineConfigNodes[1].source).toBe('# eslint-disable-line foo');
+      expect(inlineConfigNodes[2].source).toBe('# eslint-disable-line foo');
     });
   });
 
