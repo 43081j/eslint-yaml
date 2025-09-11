@@ -6,12 +6,7 @@ exports[`YAMLLanguage > parse() > should raise errors 1`] = `
     {
       "column": 1,
       "line": 2,
-      "message": "Map keys must be unique at line 2, column 1:
-
-foo: "bar"
-foo: "bar"
-^
-",
+      "message": "Map keys must be unique",
     },
   ],
   "ok": false,
@@ -24,22 +19,12 @@ exports[`YAMLLanguage > parse() > should raise multiple errors 1`] = `
     {
       "column": 1,
       "line": 2,
-      "message": "Map keys must be unique at line 2, column 1:
-
-foo: "bar"
-foo: "bar"
-^
-",
+      "message": "Map keys must be unique",
     },
     {
       "column": 1,
       "line": 3,
-      "message": "Map keys must be unique at line 3, column 1:
-
-foo: "bar"
-foo: "bar"
-^
-",
+      "message": "Map keys must be unique",
     },
   ],
   "ok": false,

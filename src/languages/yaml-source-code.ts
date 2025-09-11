@@ -5,12 +5,12 @@ import {
   Directive
 } from '@eslint/plugin-kit';
 import {
-  type Document,
-  type CST,
+  CST,
   isPair,
   isNode,
   isDocument,
   type LineCounter,
+  type Range,
   visit
 } from 'yaml';
 import {
@@ -22,7 +22,7 @@ import {
   type TraversalStep
 } from '@eslint/core';
 import {YAMLLanguageOptions} from './yaml-language.js';
-import type {NodeLike} from './types.js';
+import type {NodeLike, Root} from './types.js';
 
 const commentParser = new ConfigCommentParser();
 
@@ -31,9 +31,62 @@ const INLINE_CONFIG =
 
 interface YAMLSourceCodeOptions {
   text: string;
-  ast: Document;
+  ast: Root;
   lineCounter: LineCounter;
 }
+
+const getNodeRange = (node: NodeLike): Range | undefined => {
+  if (isPair(node)) {
+    if (!isNode(node.key) || !node.key.range) {
+      return undefined;
+    }
+    let rangeEnd: Range = node.key.range;
+    if (isNode(node.value) && node.value.range) {
+      rangeEnd = node.value.range;
+    }
+    return [node.key.range[0], rangeEnd[1], rangeEnd[2]];
+  }
+  return node.range ?? undefined;
+};
+
+const getTokenByOffset = (
+  tokens: CST.Token[],
+  offset: number
+): CST.SourceToken | undefined => {
+  for (const rootToken of tokens) {
+    let foundToken: CST.SourceToken | undefined;
+    visitSourceTokens(rootToken, (token) => {
+      if (token.offset === offset) {
+        foundToken = token;
+        return false;
+      }
+    });
+    if (foundToken) {
+      return foundToken;
+    }
+  }
+  return undefined;
+};
+const getFirstToken = (
+  tokens: CST.Token[],
+  node: NodeLike
+): CST.SourceToken | undefined => {
+  const range = getNodeRange(node);
+  if (!range) {
+    return undefined;
+  }
+  return getTokenByOffset(tokens, range[0]);
+};
+const getLastToken = (
+  tokens: CST.Token[],
+  node: NodeLike
+): CST.SourceToken | undefined => {
+  const range = getNodeRange(node);
+  if (!range) {
+    return undefined;
+  }
+  return getTokenByOffset(tokens, range[2]);
+};
 
 function visitSourceTokens(
   root: CST.Token,
@@ -44,7 +97,16 @@ function visitSourceTokens(
 
   while (currentNode) {
     switch (currentNode.type) {
-      case 'document':
+      case 'document': {
+        queue.push(...currentNode.start);
+        if (currentNode.value) {
+          queue.push(currentNode.value);
+        }
+        if (currentNode.end) {
+          queue.push(...currentNode.end);
+        }
+        break;
+      }
       case 'doc-end':
       case 'alias':
       case 'scalar':
@@ -115,29 +177,19 @@ function getSiblingTokenFromMap(
   return current;
 }
 
-function processTokens(ast: Document): {
+function processTokens(ast: Root): {
   tokenPrev: WeakMap<CST.SourceToken, CST.SourceToken>;
   tokenNext: WeakMap<CST.SourceToken, CST.SourceToken>;
-  nodeToFirstToken: WeakMap<NodeLike, CST.SourceToken>;
-  nodeToLastToken: WeakMap<NodeLike, CST.SourceToken>;
   comments: CST.SourceToken[];
 } {
   const tokenPrev = new WeakMap<CST.SourceToken, CST.SourceToken>();
   const tokenNext = new WeakMap<CST.SourceToken, CST.SourceToken>();
-  const nodeToFirstToken = new WeakMap<NodeLike, CST.SourceToken>();
-  const nodeToLastToken = new WeakMap<NodeLike, CST.SourceToken>();
   let firstToken: CST.SourceToken | undefined;
   let middleToken: CST.SourceToken | undefined;
   const comments: CST.SourceToken[] = [];
 
-  if (ast.contents?.srcToken) {
-    const node = ast.contents;
-
-    visitSourceTokens(ast.contents.srcToken, (token) => {
-      if (!nodeToFirstToken.has(node)) {
-        nodeToFirstToken.set(node, token);
-      }
-      nodeToLastToken.set(node, token);
+  for (const rootToken of ast.tokens) {
+    visitSourceTokens(rootToken, (token) => {
       if (firstToken && middleToken) {
         tokenPrev.set(firstToken, middleToken);
         tokenNext.set(middleToken, token);
@@ -160,8 +212,6 @@ function processTokens(ast: Document): {
   return {
     tokenPrev,
     tokenNext,
-    nodeToFirstToken,
-    nodeToLastToken,
     comments
   };
 }
@@ -175,14 +225,14 @@ function getCommentValue(comment: string): string {
  */
 export class YAMLSourceCode extends TextSourceCodeBase<{
   LangOptions: YAMLLanguageOptions;
-  RootNode: Document;
+  RootNode: Root;
   SyntaxElementWithLoc: NodeLike;
   ConfigNode: CST.SourceToken;
 }> {
   /**
    * The AST of the source code.
    */
-  ast: Document;
+  ast: Root;
 
   /**
    * The comment tokens in the source code.
@@ -195,8 +245,6 @@ export class YAMLSourceCode extends TextSourceCodeBase<{
   #inlineConfigComments?: CST.SourceToken[];
   #tokenPrev: WeakMap<CST.SourceToken, CST.SourceToken>;
   #tokenNext: WeakMap<CST.SourceToken, CST.SourceToken>;
-  #nodeToFirstToken: WeakMap<NodeLike, CST.SourceToken>;
-  #nodeToLastToken: WeakMap<NodeLike, CST.SourceToken>;
 
   constructor({text, ast, lineCounter}: YAMLSourceCodeOptions) {
     super({text, ast});
@@ -207,8 +255,6 @@ export class YAMLSourceCode extends TextSourceCodeBase<{
     this.comments = processResult.comments;
     this.#tokenPrev = processResult.tokenPrev;
     this.#tokenNext = processResult.tokenNext;
-    this.#nodeToFirstToken = processResult.nodeToFirstToken;
-    this.#nodeToLastToken = processResult.nodeToLastToken;
   }
 
   /** @inheritdoc */
@@ -376,21 +422,31 @@ export class YAMLSourceCode extends TextSourceCodeBase<{
 
     this.#steps = steps;
 
-    visit(this.ast, (_key, node, path) => {
-      if (!isNode(node) && !isPair(node)) {
-        return;
-      }
-      if (path.length > 0) {
-        this.#parents.set(node, path[path.length - 1]);
-      }
+    for (const doc of this.ast.contents) {
       steps.push(
         new VisitNodeStep({
-          target: node,
+          target: doc,
           phase: 1,
-          args: [node, null]
+          args: [doc, null]
         })
       );
-    });
+
+      visit(doc, (_key, node, path) => {
+        if (!isNode(node) && !isPair(node)) {
+          return;
+        }
+        if (path.length > 0) {
+          this.#parents.set(node, path[path.length - 1]);
+        }
+        steps.push(
+          new VisitNodeStep({
+            target: node,
+            phase: 1,
+            args: [node, null]
+          })
+        );
+      });
+    }
 
     return steps;
   }
@@ -401,7 +457,7 @@ export class YAMLSourceCode extends TextSourceCodeBase<{
     {includeComments = false}: {includeComments?: boolean} = {}
   ): CST.SourceToken | null {
     if (isNode(nodeOrToken) || isPair(nodeOrToken) || isDocument(nodeOrToken)) {
-      const token = this.#nodeToFirstToken.get(nodeOrToken);
+      const token = getFirstToken(this.ast.tokens, nodeOrToken);
       if (!token) {
         return null;
       }
@@ -421,7 +477,7 @@ export class YAMLSourceCode extends TextSourceCodeBase<{
     {includeComments = false}: {includeComments?: boolean} = {}
   ): CST.SourceToken | null {
     if (isNode(nodeOrToken) || isPair(nodeOrToken) || isDocument(nodeOrToken)) {
-      const token = this.#nodeToLastToken.get(nodeOrToken);
+      const token = getLastToken(this.ast.tokens, nodeOrToken);
       if (!token) {
         return null;
       }

@@ -44,8 +44,10 @@ describe('YAMLLanguage', () => {
       );
 
       expect(result.ok).toBe(true);
-      expect(result.ast).instanceOf(Document);
-      expect(result.ast.contents.type).toBe('map');
+      expect(result.ast.type).toBe('root');
+      expect(result.ast.contents.length).toBe(1);
+      expect(result.ast.contents[0]).instanceOf(Document);
+      expect(result.ast.contents[0].contents.type).toBe('map');
     });
 
     it('should raise errors', () => {
@@ -91,8 +93,9 @@ describe('YAMLLanguage', () => {
       );
 
       expect(result.ok).toBe(true);
-      expect(result.ast.type).toBe('document');
-      expect(result.ast.contents.type).toBe('map');
+      expect(result.ast.type).toBe('root');
+      expect(result.ast.contents[0].type).toBe('document');
+      expect(result.ast.contents[0].contents.type).toBe('map');
     });
   });
 

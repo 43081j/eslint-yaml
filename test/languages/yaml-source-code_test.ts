@@ -20,11 +20,12 @@ function getSourceCodeForText(text: string): YAMLSourceCode {
 }
 
 describe('YAMLSourceCode', () => {
-  it('should extract comments on non-documents', () => {
+  it('should extract comments', () => {
     const sourceCode = getSourceCodeForText(
       '# Comment 1\nfoo: bar # Comment 2\nbaz:\n  # Comment 3\n  - boop\n'
     );
     expect(sourceCode.comments).toEqual([
+      {type: 'comment', indent: 0, offset: 0, source: '# Comment 1'},
       {type: 'comment', indent: 2, offset: 40, source: '# Comment 3'},
       {type: 'comment', indent: 0, offset: 21, source: '# Comment 2'}
     ]);
