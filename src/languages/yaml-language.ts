@@ -30,7 +30,17 @@ export interface YAMLLanguageOptions {
 export type YAMLParseResult = ParseResult<Root>;
 export type YAMLOkParseResult = OkParseResult<Root>;
 
-function getNodeType(node: NodeLike): string {
+export type NodeType =
+  | 'Alias'
+  | 'Document'
+  | 'Map'
+  | 'Pair'
+  | 'Scalar'
+  | 'Seq'
+  | 'Root'
+  | 'YAMLUnknown';
+
+function getNodeType(node: NodeLike): NodeType {
   if (isAlias(node)) {
     return 'Alias';
   }
@@ -49,7 +59,7 @@ function getNodeType(node: NodeLike): string {
   if (isSeq(node)) {
     return 'Seq';
   }
-  return 'Unknown';
+  return 'YAMLUnknown';
 }
 
 function addNodeType(node: NodeLike): void {
@@ -93,12 +103,15 @@ export class YAMLLanguage
   /**
    * The visitor keys.
    */
-  visitorKeys: Record<string, string[]> = {
+  visitorKeys: Record<NodeType, string[]> = {
     Root: ['contents'],
     Document: ['contents'],
     Map: ['items'],
     Seq: ['items'],
-    Pair: ['key', 'value']
+    Pair: ['key', 'value'],
+    Alias: [],
+    Scalar: [],
+    YAMLUnknown: []
   };
 
   #lineCounter?: LineCounter;
