@@ -18,9 +18,7 @@ describe('main', () => {
   it('should correctly set recommended config', () => {
     const recommendedConfig = yaml.yaml.configs?.recommended as Linter.Config;
     expect(recommendedConfig.plugins?.yaml).toBe(yaml.yaml);
-    expect(recommendedConfig.rules).toEqual({
-      'yaml/no-empty-mapping-value': 'error'
-    });
+    expect(recommendedConfig.rules).toMatchSnapshot();
   });
 
   describe('eslint integration', () => {
