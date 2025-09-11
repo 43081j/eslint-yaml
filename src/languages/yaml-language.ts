@@ -1,7 +1,7 @@
 import {
-  parseDocument,
+  Parser,
+  Composer,
   type Node,
-  type Document,
   isAlias,
   isDocument,
   isMap,
@@ -17,17 +17,18 @@ import type {
   Language,
   ParseResult,
   OkParseResult,
+  FileError,
   File,
   LanguageContext
 } from '@eslint/core';
-import type {NodeLike} from './types.js';
+import type {NodeLike, Root} from './types.js';
 
 export interface YAMLLanguageOptions {
   [key: PropertyKey]: unknown;
 }
 
-export type YAMLParseResult = ParseResult<Document>;
-export type YAMLOkParseResult = OkParseResult<Document>;
+export type YAMLParseResult = ParseResult<Root>;
+export type YAMLOkParseResult = OkParseResult<Root>;
 
 function getNodeType(node: NodeLike): string {
   if (isAlias(node)) {
@@ -65,7 +66,7 @@ export class YAMLLanguage
     Language<{
       LangOptions: YAMLLanguageOptions;
       Code: YAMLSourceCode;
-      RootNode: Document;
+      RootNode: Root;
       Node: Node;
     }>
 {
@@ -93,6 +94,7 @@ export class YAMLLanguage
    * The visitor keys.
    */
   visitorKeys: Record<string, string[]> = {
+    Root: ['contents'],
     Document: ['contents'],
     Map: ['items'],
     Seq: ['items'],
@@ -121,37 +123,53 @@ export class YAMLLanguage
     this.#lineCounter = lineCounter;
 
     try {
-      const root = parseDocument(text, {
-        prettyErrors: true,
+      const parser = new Parser(lineCounter.addNewLine);
+      const composer = new Composer({
         keepSourceTokens: true,
         lineCounter
       });
+      const tokens = [...parser.parse(text)];
+      const docs = [...composer.compose(tokens)];
 
-      if (root.errors.length > 0) {
+      const root: Root = {
+        type: 'root',
+        tokens,
+        contents: docs
+      };
+
+      const errors: FileError[] = [];
+
+      for (const doc of docs) {
+        for (const err of doc.errors) {
+          const linePos = lineCounter.linePos(err.pos[0]);
+          const line = linePos ? linePos.line : 1;
+          const column = linePos ? linePos.col : 1;
+          errors.push({
+            line,
+            column,
+            message: err.message
+          });
+        }
+      }
+
+      if (errors.length > 0) {
         return {
           ok: false,
-          errors: root.errors.map((err) => {
-            const linePos = err.linePos ? err.linePos[0] : undefined;
-            const line = linePos ? linePos.line : 0;
-            const column = linePos ? linePos.col : 0;
-            return {
-              line,
-              column,
-              message: err.message
-            };
-          })
+          errors
         };
       }
 
-      // TODO (43081j): remove this if eslint ever allows node types to be
-      // determined by a language function rather than a node property
-      addNodeType(root);
+      for (const doc of docs) {
+        // TODO (43081j): remove this if eslint ever allows node types to be
+        // determined by a language function rather than a node property
+        addNodeType(doc);
 
-      visit(root, (_key, node) => {
-        if (isNode(node) || isPair(node) || isDocument(node)) {
-          addNodeType(node);
-        }
-      });
+        visit(doc, (_key, node) => {
+          if (isNode(node) || isPair(node) || isDocument(node)) {
+            addNodeType(node);
+          }
+        });
+      }
 
       return {
         ok: true,

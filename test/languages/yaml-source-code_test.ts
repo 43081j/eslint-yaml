@@ -26,7 +26,7 @@ describe('YAMLSourceCode', () => {
       '# Comment 1\nfoo: bar # Comment 2\nbaz:\n  # Comment 3\n  - boop\n'
     );
     expect(sourceCode.comments).toEqual([
-      {type: 'comment', indent: 0, offset: 1, source: '# Comment 1'},
+      {type: 'comment', indent: 0, offset: 0, source: '# Comment 1'},
       {type: 'comment', indent: 2, offset: 40, source: '# Comment 3'},
       {type: 'comment', indent: 0, offset: 21, source: '# Comment 2'}
     ]);
@@ -63,7 +63,7 @@ bar: 808 # not a config node
     });
 
     it('should return empty location for rangeless nodes', () => {
-      const node = sourceCode.ast.contents!;
+      const node = sourceCode.ast.contents[0];
       node.range = undefined;
       expect(sourceCode.getLoc(node)).toEqual({
         start: {line: 0, column: 0},
@@ -72,7 +72,7 @@ bar: 808 # not a config node
     });
 
     it('should return location for a pair', () => {
-      const contents = sourceCode.ast.contents as YAMLMap;
+      const contents = sourceCode.ast.contents[0].contents as YAMLMap;
       const node = contents.items[0];
       expect(sourceCode.getLoc(node)).toEqual({
         start: {line: 1, column: 1},
@@ -81,7 +81,7 @@ bar: 808 # not a config node
     });
 
     it('should return empty location for broken pairs', () => {
-      const contents = sourceCode.ast.contents as YAMLMap;
+      const contents = sourceCode.ast.contents[0].contents as YAMLMap;
       const node = contents.items[0];
       node.key = 'oogabooga';
       expect(sourceCode.getLoc(node)).toEqual({
@@ -91,7 +91,7 @@ bar: 808 # not a config node
     });
 
     it('should return location for nodes', () => {
-      const contents = sourceCode.ast.contents as YAMLMap;
+      const contents = sourceCode.ast.contents[0].contents as YAMLMap;
       const node = contents.items[0].key as Scalar;
       expect(sourceCode.getLoc(node)).toEqual({
         start: {line: 1, column: 1},
@@ -103,21 +103,21 @@ bar: 808 # not a config node
   describe('getRange', () => {
     it('should return empty range for rangeless nodes', () => {
       const sourceCode = getSourceCodeForText('foo: bar');
-      const node = sourceCode.ast.contents!;
+      const node = sourceCode.ast.contents[0];
       node.range = undefined;
       expect(sourceCode.getRange(node)).toEqual([0, 0]);
     });
 
     it('should return range for a pair', () => {
       const sourceCode = getSourceCodeForText('foo: bar');
-      const contents = sourceCode.ast.contents as YAMLMap;
+      const contents = sourceCode.ast.contents[0].contents as YAMLMap;
       const node = contents.items[0];
       expect(sourceCode.getRange(node)).toEqual([0, 8]);
     });
 
     it('should return empty range for broken pairs', () => {
       const sourceCode = getSourceCodeForText('foo: bar');
-      const contents = sourceCode.ast.contents as YAMLMap;
+      const contents = sourceCode.ast.contents[0].contents as YAMLMap;
       const node = contents.items[0];
       node.key = 'oogabooga';
       expect(sourceCode.getRange(node)).toEqual([0, 0]);
@@ -125,7 +125,7 @@ bar: 808 # not a config node
 
     it('should return range for nodes', () => {
       const sourceCode = getSourceCodeForText('foo: bar');
-      const contents = sourceCode.ast.contents as YAMLMap;
+      const contents = sourceCode.ast.contents[0].contents as YAMLMap;
       const node = contents.items[0].key as Scalar;
       expect(sourceCode.getRange(node)).toEqual([0, 3]);
     });
@@ -280,7 +280,7 @@ foo:
     baz: boop
       `);
 
-      const fooMap = sourceCode.ast.contents as YAMLMap;
+      const fooMap = sourceCode.ast.contents[0].contents as YAMLMap;
       const fooPair = fooMap.items[0] as Pair<Scalar, YAMLSeq>;
       const seq = fooPair.value as YAMLSeq<YAMLMap>;
       const barMap = seq.items[0] as YAMLMap<Scalar, YAMLMap>;
@@ -334,13 +334,19 @@ foo:
       `);
 
       const steps = [...sourceCode.traverse()];
-      const fooMap = sourceCode.ast.contents as YAMLMap;
+      const fooMap = sourceCode.ast.contents[0].contents as YAMLMap;
 
-      expect(steps).toHaveLength(11);
-      expect(steps[0].target).toBe(fooMap);
-      expect(steps[0].phase).toBe(1);
-      expect(steps[0].args[0]).toBe(fooMap);
-      expect(steps[0].args[1]).toBe(sourceCode.ast);
+      expect(steps).toHaveLength(13);
+      expect(steps[0].target).toBe(sourceCode.ast);
+      expect(steps[0].args[0]).toBe(sourceCode.ast);
+      expect(steps[0].args[1]).toBe(null);
+      expect(steps[1].target).toBe(sourceCode.ast.contents[0]);
+      expect(steps[1].args[0]).toBe(sourceCode.ast.contents[0]);
+      expect(steps[1].args[1]).toBe(sourceCode.ast);
+      expect(steps[2].target).toBe(fooMap);
+      expect(steps[2].phase).toBe(1);
+      expect(steps[2].args[0]).toBe(fooMap);
+      expect(steps[2].args[1]).toBe(sourceCode.ast.contents[0]);
     });
   });
 
@@ -363,7 +369,7 @@ foo:
 
     it('should return previous token for nodes', () => {
       const sourceCode = getSourceCodeForText('foo: bar');
-      const map = sourceCode.ast.contents as YAMLMap;
+      const map = sourceCode.ast.contents[0].contents as YAMLMap;
       const pair = map.items[0] as Pair<Scalar, Scalar>;
 
       const pairValue = sourceCode.getTokenBefore(
@@ -375,7 +381,7 @@ foo:
 
     it('should return null if no previous token for nodes', () => {
       const sourceCode = getSourceCodeForText('foo: bar');
-      const map = sourceCode.ast.contents as YAMLMap;
+      const map = sourceCode.ast.contents[0].contents as YAMLMap;
       const pair = map.items[0] as Pair<Scalar, Scalar>;
 
       const token = sourceCode.getTokenBefore(pair.key);
@@ -384,7 +390,7 @@ foo:
 
     it('should return previous token for pairs', () => {
       const sourceCode = getSourceCodeForText('foo: 303\nbar: 808');
-      const map = sourceCode.ast.contents as YAMLMap;
+      const map = sourceCode.ast.contents[0].contents as YAMLMap;
       const pair = map.items[1] as Pair<Scalar, Scalar>;
 
       const pairToken = sourceCode.getTokenBefore(pair) as CST.FlowScalar;
@@ -394,7 +400,7 @@ foo:
 
     it('should return previous token for tokens', () => {
       const sourceCode = getSourceCodeForText('foo: 303');
-      const map = sourceCode.ast.contents as YAMLMap;
+      const map = sourceCode.ast.contents[0].contents as YAMLMap;
       const pair = map.items[0] as Pair<Scalar, Scalar>;
       const valueToken = pair.value!.srcToken as CST.FlowScalar;
 
@@ -405,7 +411,7 @@ foo:
 
     it('should return null if no previous token for tokens', () => {
       const sourceCode = getSourceCodeForText('foo: 303');
-      const map = sourceCode.ast.contents as YAMLMap;
+      const map = sourceCode.ast.contents[0].contents as YAMLMap;
       const pair = map.items[0] as Pair<Scalar, Scalar>;
       const keyToken = pair.key.srcToken as CST.FlowScalar;
 
@@ -433,7 +439,7 @@ foo:
 
     it('should return next token for nodes', () => {
       const sourceCode = getSourceCodeForText('foo: bar # Comment');
-      const map = sourceCode.ast.contents as YAMLMap;
+      const map = sourceCode.ast.contents[0].contents as YAMLMap;
       const pair = map.items[0] as Pair<Scalar, Scalar>;
 
       const pairKey = sourceCode.getTokenAfter(pair.key) as CST.SourceToken;
@@ -443,7 +449,7 @@ foo:
 
     it('should return null if no next token for nodes', () => {
       const sourceCode = getSourceCodeForText('foo: bar');
-      const map = sourceCode.ast.contents as YAMLMap;
+      const map = sourceCode.ast.contents[0].contents as YAMLMap;
       const pair = map.items[0] as Pair<Scalar, Scalar>;
 
       const token = sourceCode.getTokenAfter(pair.value!);
@@ -452,7 +458,7 @@ foo:
 
     it('should return next token for pairs', () => {
       const sourceCode = getSourceCodeForText('foo: 303\nbar: 808');
-      const map = sourceCode.ast.contents as YAMLMap;
+      const map = sourceCode.ast.contents[0].contents as YAMLMap;
       const pair = map.items[0] as Pair<Scalar, Scalar>;
 
       const pairToken = sourceCode.getTokenAfter(pair) as CST.FlowScalar;
@@ -462,7 +468,7 @@ foo:
 
     it('should return next token for tokens', () => {
       const sourceCode = getSourceCodeForText('foo: 303 # Comment');
-      const map = sourceCode.ast.contents as YAMLMap;
+      const map = sourceCode.ast.contents[0].contents as YAMLMap;
       const pair = map.items[0] as Pair<Scalar, Scalar>;
       const keyToken = pair.key.srcToken as CST.FlowScalar;
 
@@ -473,7 +479,7 @@ foo:
 
     it('should return null if no next token for tokens', () => {
       const sourceCode = getSourceCodeForText('foo: 303');
-      const map = sourceCode.ast.contents as YAMLMap;
+      const map = sourceCode.ast.contents[0].contents as YAMLMap;
       const pair = map.items[0] as Pair<Scalar, Scalar>;
       const valueToken = pair.value!.srcToken as CST.FlowScalar;
 

@@ -5,7 +5,6 @@ import {
   Directive
 } from '@eslint/plugin-kit';
 import {
-  type Document,
   type CST,
   type Pair,
   isPair,
@@ -23,7 +22,7 @@ import {
   type TraversalStep
 } from '@eslint/core';
 import {YAMLLanguageOptions} from './yaml-language.js';
-import type {NodeLike} from './types.js';
+import type {NodeLike, Root} from './types.js';
 import {
   getNodeToken,
   processTokens,
@@ -44,7 +43,7 @@ const INLINE_CONFIG =
 
 interface YAMLSourceCodeOptions {
   text: string;
-  ast: Document;
+  ast: Root;
   lineCounter: LineCounter;
 }
 
@@ -57,14 +56,14 @@ function getCommentValue(comment: string): string {
  */
 export class YAMLSourceCode extends TextSourceCodeBase<{
   LangOptions: YAMLLanguageOptions;
-  RootNode: Document;
+  RootNode: Root;
   SyntaxElementWithLoc: NodeLike;
   ConfigNode: CST.SourceToken;
 }> {
   /**
    * The AST of the source code.
    */
-  ast: Document;
+  ast: Root;
 
   /**
    * The comment tokens in the source code.
@@ -277,22 +276,39 @@ export class YAMLSourceCode extends TextSourceCodeBase<{
 
     this.#steps = steps;
 
-    visit(this.ast, (_key, node, path) => {
-      if (!isNode(node) && !isPair(node)) {
-        return;
-      }
-      const parent = path.length > 0 ? path[path.length - 1] : null;
-      if (parent) {
-        this.#parents.set(node, parent);
-      }
+    steps.push(
+      new VisitNodeStep({
+        target: this.ast,
+        phase: 1,
+        args: [this.ast, null]
+      })
+    );
+
+    for (const doc of this.ast.contents) {
       steps.push(
         new VisitNodeStep({
-          target: node,
+          target: doc,
           phase: 1,
-          args: [node, parent]
+          args: [doc, this.ast]
         })
       );
-    });
+      visit(doc, (_key, node, path) => {
+        if (!isNode(node) && !isPair(node)) {
+          return;
+        }
+        const parent = path.length > 0 ? path[path.length - 1] : null;
+        if (parent) {
+          this.#parents.set(node, parent);
+        }
+        steps.push(
+          new VisitNodeStep({
+            target: node,
+            phase: 1,
+            args: [node, parent]
+          })
+        );
+      });
+    }
 
     return steps;
   }

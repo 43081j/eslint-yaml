@@ -1,13 +1,5 @@
-import {
-  type Document,
-  type CST,
-  isPair,
-  isNode,
-  isMap,
-  isSeq,
-  isDocument
-} from 'yaml';
-import type {NodeLike} from './types.js';
+import {type CST, isPair, isNode} from 'yaml';
+import type {NodeLike, Root} from './types.js';
 
 export function getNodeToken(
   node: NodeLike,
@@ -118,41 +110,7 @@ export function getSiblingTokenFromMap(
   return current;
 }
 
-function visitFirstChild(
-  node: NodeLike,
-  visitor: (node: NodeLike, path: NodeLike[]) => unknown,
-  path: NodeLike[] = []
-) {
-  if (visitor(node, path) === false) {
-    return;
-  }
-
-  if (isDocument(node) && node.contents) {
-    visitFirstChild(node.contents, visitor, [...path, node]);
-    return;
-  }
-
-  if ((isMap(node) || isSeq(node)) && node.items.length > 0) {
-    const firstChild = node.items[0];
-    if (isNode(firstChild) || isPair(firstChild)) {
-      visitFirstChild(firstChild, visitor, [...path, node]);
-    }
-    return;
-  }
-
-  if (isPair(node)) {
-    if (node.key) {
-      if (isNode(node.key)) {
-        visitFirstChild(node.key, visitor, [...path, node]);
-      }
-    } else if (node.value && isNode(node.value)) {
-      visitFirstChild(node.value, visitor, [...path, node]);
-    }
-    return;
-  }
-}
-
-export function processTokens(ast: Document): {
+export function processTokens(ast: Root): {
   tokenPrev: WeakMap<CST.Token, CST.Token>;
   tokenNext: WeakMap<CST.Token, CST.Token>;
   comments: CST.SourceToken[];
@@ -163,8 +121,8 @@ export function processTokens(ast: Document): {
   let middleToken: CST.Token | undefined;
   const comments: CST.SourceToken[] = [];
 
-  if (ast.contents?.srcToken) {
-    visitTokens(ast.contents.srcToken, (token) => {
+  for (const rootToken of ast.tokens) {
+    visitTokens(rootToken, (token) => {
       if (firstToken && middleToken) {
         tokenPrev.set(middleToken, firstToken);
         tokenNext.set(firstToken, middleToken);
@@ -187,25 +145,6 @@ export function processTokens(ast: Document): {
     if (firstToken && middleToken) {
       tokenPrev.set(middleToken, firstToken);
     }
-
-    const firstComment = comments[0];
-
-    // Serious hacks because the parser decided to throw away preceding
-    // comments. One day when yaml#637 is fixed, we should be able to remove
-    // this questionable workaround.
-    visitFirstChild(ast, (node) => {
-      if (isNode(node) && node.commentBefore && node.range) {
-        if (firstComment === undefined || node.range[0] < firstComment.offset) {
-          comments.unshift({
-            type: 'comment',
-            offset: Math.max(0, node.range[0] - node.commentBefore.length - 1),
-            indent: 0,
-            source: `#${node.commentBefore}`
-          });
-          return false;
-        }
-      }
-    });
   }
 
   return {
