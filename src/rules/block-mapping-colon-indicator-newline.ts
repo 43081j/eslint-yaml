@@ -1,9 +1,41 @@
-import {type Pair, type YAMLMap, type CST, isNode, isCollection} from 'yaml';
+import {type Pair, type CST, isNode, isCollection} from 'yaml';
 import type {YAMLRuleDefinition} from '../rule.js';
 import type {NodeLike} from '../languages/types.js';
+import type {YAMLSourceCode} from '../languages/yaml-source-code.js';
 
 function isColon(token: CST.Token): token is CST.SourceToken {
   return token.type === 'map-value-ind' && token.source === ':';
+}
+
+/**
+ * Get the colon token from the given pair node.
+ */
+function getColonToken(sourceCode: YAMLSourceCode, pair: Pair) {
+  if (!isNode(pair.key) || !pair.key.range || !isNode(pair.value)) {
+    return null;
+  }
+  const limitIndex = pair.key.range[1];
+  let candidateColon = sourceCode.getTokenBefore(pair.value);
+  while (candidateColon && !isColon(candidateColon)) {
+    candidateColon = sourceCode.getTokenBefore(candidateColon);
+    if (candidateColon && candidateColon.offset <= limitIndex) {
+      return null;
+    }
+  }
+  if (!candidateColon || !isColon(candidateColon)) {
+    return null;
+  }
+  return candidateColon;
+}
+
+/**
+ * Checks whether the newline between the given value node and the colon can be removed.
+ */
+function canRemoveNewline(value: NodeLike) {
+  if (isCollection(value) && !value.flow) {
+    return false;
+  }
+  return true;
 }
 
 type MessageId =
@@ -33,39 +65,8 @@ export const rule: YAMLRuleDefinition<['always' | 'never'], MessageId> = {
     const sourceCode = context.sourceCode;
     const option = context.options[0] || 'never';
 
-    /**
-     * Get the colon token from the given pair node.
-     */
-    function getColonToken(pair: Pair) {
-      if (!isNode(pair.key) || !pair.key.range || !isNode(pair.value)) {
-        return null;
-      }
-      const limitIndex = pair.key.range[1];
-      let candidateColon = sourceCode.getTokenBefore(pair.value);
-      while (candidateColon && !isColon(candidateColon)) {
-        candidateColon = sourceCode.getTokenBefore(candidateColon);
-        if (candidateColon && candidateColon.offset <= limitIndex) {
-          return null;
-        }
-      }
-      if (!candidateColon || !isColon(candidateColon)) {
-        return null;
-      }
-      return candidateColon;
-    }
-
-    /**
-     * Checks whether the newline between the given value node and the colon can be removed.
-     */
-    function canRemoveNewline(value: NodeLike) {
-      if (isCollection(value) && !value.flow) {
-        return false;
-      }
-      return true;
-    }
-
     return {
-      Map(node: YAMLMap) {
+      Map(node) {
         if (node.flow) {
           return;
         }
@@ -75,7 +76,7 @@ export const rule: YAMLRuleDefinition<['always' | 'never'], MessageId> = {
           if (!isNode(value) || !value.range) {
             continue;
           }
-          const colon = getColonToken(pair);
+          const colon = getColonToken(sourceCode, pair);
           const valueRange = value.range;
           if (!colon) {
             return;
