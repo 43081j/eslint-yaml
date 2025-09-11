@@ -19,7 +19,7 @@ describe('YAMLLanguage', () => {
     it('should have visitorKeys property', () => {
       const language = new YAMLLanguage();
 
-      expect(language.visitorKeys.document).toEqual(['contents']);
+      expect(language.visitorKeys.Document).toEqual(['contents']);
     });
   });
 
@@ -47,7 +47,7 @@ describe('YAMLLanguage', () => {
       expect(result.ast.type).toBe('root');
       expect(result.ast.contents.length).toBe(1);
       expect(result.ast.contents[0]).instanceOf(Document);
-      expect(result.ast.contents[0].contents.type).toBe('map');
+      expect(result.ast.contents[0].contents.type).toBe('Map');
     });
 
     it('should raise errors', () => {
@@ -94,8 +94,8 @@ describe('YAMLLanguage', () => {
 
       expect(result.ok).toBe(true);
       expect(result.ast.type).toBe('root');
-      expect(result.ast.contents[0].type).toBe('document');
-      expect(result.ast.contents[0].contents.type).toBe('map');
+      expect(result.ast.contents[0].type).toBe('Document');
+      expect(result.ast.contents[0].contents.type).toBe('Map');
     });
   });
 

@@ -19,6 +19,5 @@ plugin.configs = {
   recommended: createRecommendedConfig(plugin)
 };
 
-export default plugin;
-export {YAMLSourceCode};
+export {plugin as yaml, YAMLSourceCode};
 export * from './languages/yaml-language.js';
