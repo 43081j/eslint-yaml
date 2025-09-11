@@ -1,4 +1,5 @@
 import type {YAMLRuleDefinition} from '../rule.js';
+import {isScalar} from 'yaml';
 
 type MessageId = 'emptyMappingValue';
 
@@ -21,7 +22,7 @@ export const rule: YAMLRuleDefinition<[], MessageId> = {
         if (
           node.value === null ||
           node.value === undefined ||
-          (node.value.type === 'Scalar' && node.value.value === null)
+          (isScalar(node.value) && node.value.value === null)
         ) {
           context.report({
             node,
