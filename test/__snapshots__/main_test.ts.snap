@@ -15,3 +15,10 @@ exports[`main > eslint integration > should raise diagnostics 1`] = `
   },
 ]
 `;
+
+exports[`main > should correctly set recommended config 1`] = `
+{
+  "yaml/block-mapping-colon-indicator-newline": "error",
+  "yaml/no-empty-mapping-value": "error",
+}
+`;

@@ -26,7 +26,8 @@ import type {NodeLike, Root} from './types.js';
 import {
   getNodeToken,
   processTokens,
-  getSiblingTokenFromMap
+  getSiblingTokenFromMap,
+  isToken
 } from './ast-utils.js';
 
 function isNodeLikePair(node: Pair): node is Pair<NodeLike, NodeLike> {
@@ -57,7 +58,7 @@ function getCommentValue(comment: string): string {
 export class YAMLSourceCode extends TextSourceCodeBase<{
   LangOptions: YAMLLanguageOptions;
   RootNode: Root;
-  SyntaxElementWithLoc: NodeLike;
+  SyntaxElementWithLoc: NodeLike | CST.Token;
   ConfigNode: CST.SourceToken;
 }> {
   /**
@@ -100,7 +101,7 @@ export class YAMLSourceCode extends TextSourceCodeBase<{
   }
 
   /** @inheritdoc */
-  getLoc(node: NodeLike): SourceLocation {
+  getLoc(node: NodeLike | CST.Token): SourceLocation {
     if (isPair(node)) {
       if (!isNodeLikePair(node) || !node.value) {
         return {
@@ -112,6 +113,10 @@ export class YAMLSourceCode extends TextSourceCodeBase<{
       const {end} = this.getLoc(node.value);
 
       return {start, end};
+    }
+
+    if (isToken(node)) {
+      return this.#getSourceTokenLoc(node);
     }
 
     // TODO (43081j): really we want `undefined` here but it looks like eslint
@@ -138,13 +143,19 @@ export class YAMLSourceCode extends TextSourceCodeBase<{
   }
 
   /** @inheritdoc */
-  getRange(node: NodeLike): SourceRange {
+  getRange(node: NodeLike | CST.Token): SourceRange {
     if (isPair(node)) {
       if (!isNodeLikePair(node) || !node.value) {
         return [0, 0];
       }
 
       return [this.getRange(node.key)[0], this.getRange(node.value)[1]];
+    }
+
+    if (isToken(node)) {
+      const nextToken = this.getTokenAfter(node);
+      const endOffset = nextToken ? nextToken.offset - 1 : node.offset;
+      return [node.offset, endOffset];
     }
 
     // TODO (43081j): really we want `undefined` here but it looks like eslint
@@ -199,9 +210,12 @@ export class YAMLSourceCode extends TextSourceCodeBase<{
     return {problems, directives};
   }
 
-  #getSourceTokenLoc(token: CST.SourceToken): SourceLocation {
+  #getSourceTokenLoc(token: CST.Token): SourceLocation {
     const start = this.#lineCounter.linePos(token.offset);
-    const end = this.#lineCounter.linePos(token.offset + token.source.length);
+    const nextToken = this.getTokenAfter(token);
+    const end = this.#lineCounter.linePos(
+      nextToken ? nextToken.offset - 1 : token.offset
+    );
     return {
       start: {
         line: start.line,
@@ -262,7 +276,10 @@ export class YAMLSourceCode extends TextSourceCodeBase<{
   }
 
   /** @inheritdoc */
-  getParent(node: NodeLike): NodeLike | undefined {
+  getParent(node: NodeLike | CST.Token): NodeLike | undefined {
+    if (isToken(node)) {
+      return undefined;
+    }
     return this.#parents.get(node);
   }
 

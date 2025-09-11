@@ -153,3 +153,13 @@ export function processTokens(ast: Root): {
     comments
   };
 }
+
+export function isToken(value: unknown): value is CST.Token {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'type' in value &&
+    value.constructor === Object &&
+    typeof (value as CST.Token).type === 'string'
+  );
+}

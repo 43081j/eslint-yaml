@@ -246,7 +246,7 @@ bar: 808
         },
         loc: {
           start: {line: 3, column: 1},
-          end: {line: 3, column: 45}
+          end: {line: 3, column: 44}
         }
       });
     });
@@ -265,7 +265,7 @@ bar: 808
 
       expect(problem.loc).toEqual({
         start: {line: 3, column: 1},
-        end: {line: 3, column: 22}
+        end: {line: 3, column: 21}
       });
       expect(problem.ruleId).toBe(null);
       expect(problem.message).toContain('Unexpected token');

@@ -6,7 +6,8 @@ export function createConfig(plugin: ESLint.Plugin): Linter.Config {
       yaml: plugin
     },
     rules: {
-      'yaml/no-empty-mapping-value': 'error'
+      'yaml/no-empty-mapping-value': 'error',
+      'yaml/block-mapping-colon-indicator-newline': 'error'
     }
   };
 }

@@ -1,6 +1,8 @@
-import type {RuleDefinition} from '@eslint/core';
+import type {YAMLRuleDefinition} from '../rule.js';
 
-export const noEmptyMappingValueRule: RuleDefinition = {
+type MessageId = 'emptyMappingValue';
+
+export const rule: YAMLRuleDefinition<[], MessageId> = {
   meta: {
     type: 'problem',
     docs: {
